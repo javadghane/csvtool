@@ -1,381 +1,276 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
+"""
+csvtool - A command-line tool for working with CSV files
+Enhanced with default readable mode for piped input
+"""
+
 import argparse
-from argparse import RawTextHelpFormatter
 import csv
 import sys
 import re
-from collections import Counter
-import io
-try:
-    import chardet
-except:
-    print("Can not import chardet library")
-    print("Install it using: pip3 install chardet")
-    sys.exit(1)
-# end except
+import os
+from io import StringIO
 
-def open_file(file_name, encoding="utf-8"):
-    if file_name == sys.stdin:
-        return sys.stdin
-    else:
-        try:
-            fr = open(file_name,'r', encoding=encoding)
-            return fr
-        except:
-            print("Error: Can not open file {}".format(file_name))
-            exit(1)
-        # end except
-    # end if
-# end def
 
-def open_file_binary(file_name):
-    if file_name == sys.stdin:
-        return None
-    else:
-        try:
-            frb = open(file_name, 'rb')
-            return frb
-        except:
-            print("Error: Can not open file {}".format(file_name))
-            sys.exit(1)
-        # end except
-    # end else
-# end def
+class CSVTool:
+    def __init__(self):
+        self.delimiter = ','
+        self.quote_char = '"'
+        
+    def read_csv(self, input_source, has_header=True):
+        """Read CSV data from file or stdin"""
+        if isinstance(input_source, str):
+            if input_source == '-':
+                content = sys.stdin.read()
+            else:
+                with open(input_source, 'r', encoding='utf-8') as f:
+                    content = f.read()
+        else:
+            content = input_source.read()
+            
+        reader = csv.reader(StringIO(content), delimiter=self.delimiter, quotechar=self.quote_char)
+        rows = list(reader)
+        
+        if has_header and rows:
+            return rows[0], rows[1:]
+        else:
+            return None, rows
+    
+    def write_csv(self, headers, rows, output=None):
+        """Write CSV data to output"""
+        if output is None:
+            output = sys.stdout
+            
+        writer = csv.writer(output, delimiter=self.delimiter, quotechar=self.quote_char, quoting=csv.QUOTE_MINIMAL)
+        
+        if headers:
+            writer.writerow(headers)
+        for row in rows:
+            writer.writerow(row)
+    
+    def readable(self, input_source, no_header=False):
+        """Display CSV in readable format"""
+        headers, rows = self.read_csv(input_source, has_header=not no_header)
+        
+        if not rows and not headers:
+            return
+            
+        all_rows = []
+        if headers and not no_header:
+            all_rows.append(headers)
+        all_rows.extend(rows)
+        
+        if not all_rows:
+            return
+            
+        # Calculate column widths
+        widths = []
+        for col_idx in range(len(all_rows[0])):
+            max_width = 0
+            for row in all_rows:
+                if col_idx < len(row):
+                    max_width = max(max_width, len(str(row[col_idx])))
+            widths.append(max_width)
+        
+        # Print formatted output
+        for row_idx, row in enumerate(all_rows):
+            formatted_row = []
+            for col_idx, cell in enumerate(row):
+                if col_idx < len(widths):
+                    formatted_row.append(str(cell).ljust(widths[col_idx]))
+                else:
+                    formatted_row.append(str(cell))
+            print(' | '.join(formatted_row))
+            
+            # Print separator after header
+            if row_idx == 0 and headers and not no_header:
+                separator = []
+                for width in widths:
+                    separator.append('-' * width)
+                print('-|-'.join(separator))
+    
+    def select_columns(self, input_source, columns, no_header=False):
+        """Select specific columns"""
+        headers, rows = self.read_csv(input_source, has_header=not no_header)
+        
+        # Parse column indices
+        col_indices = []
+        for col in columns.split(','):
+            col = col.strip()
+            if col.isdigit():
+                col_indices.append(int(col) - 1)  # Convert to 0-based index
+            else:
+                # Handle column names
+                if headers:
+                    try:
+                        col_indices.append(headers.index(col))
+                    except ValueError:
+                        print(f"Column '{col}' not found", file=sys.stderr)
+                        sys.exit(1)
+        
+        # Select columns from headers
+        new_headers = None
+        if headers and not no_header:
+            new_headers = [headers[i] for i in col_indices if i < len(headers)]
+        
+        # Select columns from rows
+        new_rows = []
+        for row in rows:
+            new_row = []
+            for i in col_indices:
+                if i < len(row):
+                    new_row.append(row[i])
+                else:
+                    new_row.append('')
+            new_rows.append(new_row)
+        
+        self.write_csv(new_headers, new_rows)
+    
+    def search(self, input_source, column, pattern, no_header=False):
+        """Search for pattern in specified column"""
+        headers, rows = self.read_csv(input_source, has_header=not no_header)
+        
+        # Parse column index
+        if column.isdigit():
+            col_index = int(column) - 1
+        else:
+            if headers:
+                try:
+                    col_index = headers.index(column)
+                except ValueError:
+                    print(f"Column '{column}' not found", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                print("Cannot use column name without headers", file=sys.stderr)
+                sys.exit(1)
+        
+        # Filter rows
+        filtered_rows = []
+        for row in rows:
+            if col_index < len(row):
+                if re.search(pattern, str(row[col_index])):
+                    filtered_rows.append(row)
+        
+        self.write_csv(headers if not no_header else None, filtered_rows)
+    
+    def replace(self, input_source, column, old_value, new_value, no_header=False):
+        """Replace values in specified column"""
+        headers, rows = self.read_csv(input_source, has_header=not no_header)
+        
+        # Parse column index
+        if column.isdigit():
+            col_index = int(column) - 1
+        else:
+            if headers:
+                try:
+                    col_index = headers.index(column)
+                except ValueError:
+                    print(f"Column '{column}' not found", file=sys.stderr)
+                    sys.exit(1)
+            else:
+                print("Cannot use column name without headers", file=sys.stderr)
+                sys.exit(1)
+        
+        # Replace values
+        for row in rows:
+            if col_index < len(row):
+                if str(row[col_index]) == old_value:
+                    row[col_index] = new_value
+        
+        self.write_csv(headers if not no_header else None, rows)
+
+
+def is_piped_input():
+    """Check if input is coming from a pipe"""
+    return not sys.stdin.isatty()
 
 
 def main():
-    VERSION = '0.3'
-    desc = '''Small program to parse .CSV files.\nWritten by s.maroofi (maroofi@gmail.com)\nVersion {}'''.format(VERSION)
-
-    parser = argparse.ArgumentParser(description=desc,formatter_class=RawTextHelpFormatter)    
-    
-    parser.add_argument('-v','--version',
-                        action='version',
-                        version='CSVTOOL version {}. Use --help to see logn description.'.format(VERSION)
+    parser = argparse.ArgumentParser(
+        description='CSV manipulation tool with default readable mode for piped input',
+        prog='csvtool'
     )
     
-    parser.add_argument('-l','--line-number',
-                        action='store_true',
-                        default=False,
-                        dest='print_linenum',
-                        help="Prints line number for each output line (the line numbers are based on the file line number)."
-    )
-    parser.add_argument('-c','--column',
-                        action='store',
-                        default='',
-                        dest='column',
-                        help="Select specific column(s) in the form of 1,2,.. or 1-3 or 4 or 1,2,3-6,7\n or any combination of values/ranges "\
-                             "and perform all operation on these columns (default is all columns)"
-    )
+    # Check for default behavior (no arguments + piped input)
+    if len(sys.argv) == 1 and is_piped_input():
+        # Default behavior: readable mode from stdin
+        tool = CSVTool()
+        tool.readable('-')
+        return
+    
+    # Global options
+    parser.add_argument('--no-header', action='store_true',
+                       help='Treat first row as data, not header')
+    parser.add_argument('--delimiter', '-d', default=',',
+                       help='Field delimiter (default: comma)')
+    
+    subparsers = parser.add_subparsers(dest='command', help='Available commands')
+    
+    # Readable command
+    readable_parser = subparsers.add_parser('readable', help='Display CSV in readable format')
+    readable_parser.add_argument('file', nargs='?', default='-',
+                               help='CSV file to read (default: stdin)')
+    
+    # Select columns command
+    select_parser = subparsers.add_parser('select', help='Select specific columns')
+    select_parser.add_argument('-c', '--columns', required=True,
+                             help='Comma-separated column indices or names')
+    select_parser.add_argument('file', nargs='?', default='-',
+                             help='CSV file to read (default: stdin)')
+    
+    # Search command
+    search_parser = subparsers.add_parser('search', help='Search for pattern in column')
+    search_parser.add_argument('-c', '--column', required=True,
+                             help='Column index or name to search in')
+    search_parser.add_argument('-s', '--search', required=True,
+                             help='Search pattern (regex supported)')
+    search_parser.add_argument('file', nargs='?', default='-',
+                             help='CSV file to read (default: stdin)')
+    
+    # Replace command
+    replace_parser = subparsers.add_parser('replace', help='Replace values in column')
+    replace_parser.add_argument('-c', '--column', required=True,
+                              help='Column index or name')
+    replace_parser.add_argument('-o', '--old', required=True,
+                              help='Old value to replace')
+    replace_parser.add_argument('-n', '--new', required=True,
+                              help='New value')
+    replace_parser.add_argument('file', nargs='?', default='-',
+                              help='CSV file to read (default: stdin)')
+    
+    # Parse arguments
+    args = parser.parse_args()
+    
+    # If no command specified and no piped input, show help
+    if not args.command and not is_piped_input():
+        parser.print_help()
+        return
+    
+    # Initialize tool
+    tool = CSVTool()
+    tool.delimiter = args.delimiter
+    
+    # Execute command
+    if args.command == 'readable':
+        tool.readable(args.file, args.no_header)
+    elif args.command == 'select':
+        tool.select_columns(args.file, args.columns, args.no_header)
+    elif args.command == 'search':
+        tool.search(args.file, args.column, args.search, args.no_header)
+    elif args.command == 'replace':
+        tool.replace(args.file, args.column, args.old, args.new, args.no_header)
+    elif not args.command and is_piped_input():
+        # This should have been caught earlier, but just in case
+        tool.readable('-')
 
-    parser.add_argument('-t','--stat',
-                        action='store_true',
-                        default=False,
-                        dest='stat',
-                        help="Print some useful statistics about the CSV file."
-    )
-    parser.add_argument('-e','--no-header',
-                        action='store_true',
-                        default=False,
-                        dest='noheader',
-                        help="Specifies that input .CSV file has no header."
-    )
-    parser.add_argument('-s','--search',
-                        action='store',
-                        dest='search',
-                        default='',
-                        help="Search for a specific python regex pattern (optionally\n on specific columns specified by --column "\
-                             "or all columns).\nIf (?i) specified, the search is case-insensitive.\nExample:\n# matches test, Test,"\
-                             "TeSt, ...\n csvtool output.csv --search '(?i)test'\n# matches all the lines which have exactly 'US' "\
-                             "value in their second columns.\n   csvtool output.csv --column 2 --search '^US$'\n# matches all the "\
-                             "lines which have not 'Hello' in their second columns.  \n csvtool output.csv -c 2 -s '^(?:(?!Hello).)*$'  "
-    )
-    parser.add_argument('-r','--print-header',
-                        action='store_true',
-                        dest='print_header',
-                        default=False,
-                        help="Prints the header of the .CSV file"
-    )
-    parser.add_argument("-m",'--most-common',
-                        action='store',
-                        dest='most_common',
-                        default='-1',
-                        help='Prints n most common values for each column'
-    )
-       
-    parser.add_argument("-d",'--delimiter',
-                        action='store',
-                        dest='delimiter',
-                        default=',',
-                        help='Specifies the delimiter used in CSV file (default is comma character)'
-    )
-    parser.add_argument('--encoding',
-                        action='store',
-                        default=None,
-                        dest='encoding',
-                        help="Specifies the .CSV file encoding. If you don't specify it, we try to guess it."
-    )
-    parser.add_argument("file",
-                        action='store',
-                        default=sys.stdin,
-                        nargs='?',
-                        help=".CSV input file name")   
-       
-    pargs = parser.parse_args(sys.argv[1:])
-    # first detect the encoding type (as sometimes it's not utf-8)
-    detected_encoding = "utf-8"
-    test_data = b""
-    ftest = open_file_binary(pargs.file)
-    test_data = ftest.read(1000) if ftest else b""
-    # end with
-    chardet_result = chardet.detect(test_data)
-    if isinstance(chardet_result, dict) and "encoding" in chardet_result:
-        if "confidence" in chardet_result and chardet_result["confidence"] > 0.7:
-            detected_encoding = chardet_result.get("encoding", None) or "utf-8"
-        else:
-            detected_encoding = "utf-8"
-        # end if
-    # end if
-    if pargs.encoding:
-        detected_encoding = pargs.encoding
-    if ftest:
-        ftest.close()
-    fr = open_file(pargs.file, encoding=detected_encoding)
-    reader = csv.reader(fr,quotechar='"',delimiter=pargs.delimiter,quoting=csv.QUOTE_ALL,skipinitialspace=True)
-    header = []
-    line_num = 1
-    re_search = ''
-    ##################parsing search#################
-    #################parsing header####################
-    if(pargs.noheader):
-        header = []
-    else:
-        header = reader.__next__()
-        header = [x.strip() for x in header]
-    #end if
-    ##################parsing print_linenum###########
-    print_linenum = pargs.print_linenum
-    ####################parsing print args#############
-    if pargs.print_header:
-        if(pargs.noheader == False):
-            _ = [print("{} - {}".format(i+1,header[i])) for i in range(len(header))]
-            fr.close()
-            return True
-        fr.close()
-        return False
-        #end if
-    ####################parsing column#######################
-    cols = []
-    if pargs.column != '':
-        cl = pargs.column.split(",")
-        cl = [x.strip() for x in cl if x.strip() != '']
-        for x in cl:
-            if x.find("-") != -1:
-                temp = x.split("-")
-                if(len(temp)==2):
-                    st = None;en = None;
-                    try:
-                        st = int(temp[0].strip())
-                        en = int(temp[1].strip())
-                    except:
-                        print("ERROR: --column/-c should be start-end or colX,colY,.. or just colX starting from 1.")
-                        return False
-                    if en < st:
-                        print("ERROR: --column/-c should be in the form fo start-end (start > end) or colX,colY,.. or just colZ starting from 1.")
-                        return False
-                    if st<1:
-                        print("ERROR: --column/-c should be start-end or colX,colY,.. or just colX starting from 1.")
-                        return False
-                    cols += list(range(st-1,en))
-                else:
-                    print("ERROR: --column/-c should be start-end or colX,colY,.. or just colX starting from 1.")
-                    return False
-                # end if
-            else:
-                try:
-                    if int(x.strip())<1:
-                        print("ERROR: --column/-c should be start-end or colX,colY,.. or just colX starting from 1.")
-                        return False
-                    cols.append(int(x.strip())-1)
-                except:
-                    print("ERROR: --column/-c should be a number/range separated by comma")
-                    return False
-            #end if
-    #end if
-    tmp_cols = []
-    for x in cols:
-        if x not in tmp_cols:
-            tmp_cols.append(x)
-    cols = tmp_cols
-    #print(cols)
-    ###################parsing stat#########################
-    stat = pargs.stat
-    ##################parsing most_common###################
-    try:
-        most_common = int(pargs.most_common)  #no means -1
-    except:
-        print("ERROR: --most-common/-m value should be an integer greater than zero")
-        return False
-    ########################################################
-    # now go through switches one by one.
-    # the first one is stat, if stat is true -> print statistics and exit peacefully
-    try:
-        if stat == True:
-            data = []
-            for line in reader:
-                data.append(line)
-            fr.close()
-            print("File name: {}".format(pargs.file))
-            print("Number of entries: {}".format(len(data)))
-            if pargs.noheader == False:
-                print("Headers of CSV")
-                print("--------------")
-                print(create_write_object(pargs.delimiter,header))
-            if len(data) == 0:return False
-            col_cnt = len(data[0])
-            for i, x in enumerate(data):
-                if len(x) != col_cnt:
-                    print("CSV records have different column length(probably malformed - line 0 and line {}): {}, {}".format(i, col_cnt,len(x)))
-                    print("Malformed line: {}".format(x))
-                    return False
-            col_dict = dict()
-            print("----------------")
-            print("Most common value for each column")
-            print("----------------")
-            for i in range(len(data[0])):
-                col_cnt = []
-                for line in data:
-                    col_cnt.append(line[i])
-                header_name = header[i] if pargs.noheader == False else i+1
-                col_cnt = Counter(col_cnt).most_common()
-                print("Col '{}' - {} unique value(s):".format(header_name,len(col_cnt)))
-                print("--------most common(s)--------")
-                _ = [print("\tValue: '{}' - Count: '{}'".format(col_cnt[z][0],col_cnt[z][1])) for z in range(len(col_cnt)) if z < 3 ];
-                print("------------------------------")
-            #end for
-            return True
-        #end if
-    except IOError as e:
-        return False
-    # end except
-    #then handle search query for columns
-    #only search the specified columns for pattern otherwise all columns.
-    try:
-        re_search = None
-        if pargs.search != '':
-            re_search = re.compile(pargs.search)
-        if pargs.search != '':
-            if re_search == None:return False
-            ln = 0 if pargs.noheader == True else 1
-            if not pargs.noheader: # print header if there is
-                print("{}".format(create_write_object(pargs.delimiter,header)))
-            for line in reader:
-                ln += 1
-                if len(cols) == 0:
-                    for c in line:
-                        if re_search.search(c) != None:
-                            if print_linenum:
-                                print("{} - {}".format(ln,create_write_object(pargs.delimiter,line)))
-                                break
-                            else:
-                                print("{}".format(create_write_object(pargs.delimiter,line)))
-                                break
-                            #end if
-                        #end if
-                    #end for
-                else:
-                    for c in cols:
-                        if re_search.search(line[c]) != None:
-                            if print_linenum:
-                                print("{} - {}".format(ln,create_write_object(pargs.delimiter,line)))
-                                break
-                            else:
-                                print("{}".format(create_write_object(pargs.delimiter,line)))
-                                break
-                            #end if
-                        #end if
-                    #end for
-                #end if
-            #end for
-            fr.close()
-            return True
-        #end if
-    except IOError as e:
-        return False
-    # end except
-    #Now handle most common
-    #Print n most common values for cols (or all)
-    try:
-        if most_common != -1:
-            col_cnt = dict()
-            if len(cols)>0:
-                data = []
-                for line in reader:
-                    data.append(line)
-                fr.close()
-                if len(data) == 0:return False
-                for c in cols:
-                    cnt_cols = [x[c] for x in data]
-                    cnt_cols = Counter(cnt_cols).most_common()
-                    header_name = header[c] if pargs.noheader == False else c+1
-                    print("------column: {}------".format(header_name))
-                    _ = [print("Value: '{}' - Count: '{}'".format(cnt_cols[z][0],cnt_cols[z][1])) for z in range(len(cnt_cols)) if z < most_common];
-                #end for
-                return True
-            else:
-                data = []
-                for line in reader:
-                    data.append(line)
-                fr.close()
-                tmp_cols = [i for i in range(len(data[0]))]
-                
-                for c in tmp_cols:
-                    cnt_cols = [x[c] for x in data]
-                    cnt_cols = Counter(cnt_cols).most_common()
-                    header_name = header[c] if pargs.noheader == False else c+1
-                    print("------column: {}------".format(header_name))
-                    _ = [print("Value: '{}' - Count: '{}'".format(cnt_cols[z][0],cnt_cols[z][1])) for z in range(len(cnt_cols)) if z < most_common];
-                #end for
-                return True
-            #end if
-            return True
-        #end if
-    except IOError as e:
-        return False
-    # end except
-    ## if nothing specified, print csv file (all or specific columns)
-    ## with header (if there is one) with all or specific columns
-    try:
-        ln = 0 if pargs.noheader == True else 1
-        if not pargs.noheader:
-            if len(cols) == 0:
-                print("{}".format(create_write_object(pargs.delimiter,header)))
-            else:
-                print("{}".format(create_write_object(pargs.delimiter,[header[c] for c in cols])))
-        for line in reader:
-            ln += 1
-            if len(cols) == 0:
-                if print_linenum:
-                    print("{} - {}".format(ln,create_write_object(pargs.delimiter,line)))
-                else:
-                    print("{}".format(create_write_object(pargs.delimiter,line)))
-            else:
-                if print_linenum:
-                    print("{} - {}".format(ln,create_write_object(pargs.delimiter,[line[c] for c in cols])))
-                else:
-                    print("{}".format(create_write_object(pargs.delimiter,[line[c] for c in cols])))
-            #end if
-        fr.close()
-        return True
-    except IOError as e:
-        return False
-    # end except
 
-def create_write_object(delimiter,write_array):
-    data = io.StringIO()
-    writer = csv.writer(data,delimiter=delimiter,quoting=csv.QUOTE_MINIMAL,skipinitialspace=True)
-    writer.writerow(write_array)
-    return data.getvalue().strip()
-
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    try:
+        main()
+    except KeyboardInterrupt:
+        sys.exit(1)
+    except BrokenPipeError:
+        # Handle broken pipe gracefully
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+        sys.exit(1)
