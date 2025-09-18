@@ -1,43 +1,46 @@
-from setuptools import setup
-import os
+#!/usr/bin/env python3
 
-here = os.path.abspath(os.path.dirname(__file__))
+from setuptools import setup, find_packages
 
-    
-dependencies = ["chardet"]
-
-long_description = """
-csvtool is a simple command-line tool to 1) extract statistics, 2) perform regular expression search and, 3) generate output file 
-without writing code for such simple tasks for .CSV files.
-"""
+with open("README.md", "r", encoding="utf-8") as fh:
+    long_description = fh.read()
 
 setup(
-    name='csvtool',
-    version="0.3",
-    url='https://github.com/maroofi/csvtool/',
-    author='Sourena Maroofi',
-    install_requires=dependencies,
-    setup_requires=dependencies,
-    author_email='maroofi@gmail.com',
-    description='csvtool is an easy to use command-line tool to work with .CSV files.',
+    name="csvtool",
+    version="1.3.0",
+    author="Sourena MAROOFI",
+    author_email="maroofi@example.com",
+    description="A command-line tool for working with CSV files with enhanced pipe support",
     long_description=long_description,
-    packages=['csvtool',],
-    include_package_data=True,
+    long_description_content_type="text/markdown",
+    url="https://github.com/maroofi/csvtool",
+    packages=find_packages(),
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        "Intended Audience :: System Administrators",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: OS Independent",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
+        "Programming Language :: Python :: 3.8",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Topic :: Software Development :: Libraries :: Python Modules",
+        "Topic :: Text Processing",
+        "Topic :: Utilities",
+    ],
+    python_requires=">=3.6",
     entry_points={
-        'console_scripts': [
-            'csvtool = csvtool.csvtool:main',
+        "console_scripts": [
+            "csvtool=csvtool.__main__:main",
         ],
     },
-    license = "MIT",
-    classifiers = [
-        "Development Status :: 4 - Beta",
-        "License :: OSI Approved :: MIT License",
-        "Topic :: Scientific/Engineering",
-        "Topic :: Text Processing",
-        "Topic :: Education",
-        "Environment :: Console",
-        "Operating System :: MacOS :: MacOS X",
-        "Operating System :: POSIX",
-        "Programming Language :: Python :: 3",
-    ],
+    keywords="csv, command-line, data-processing, pipe, stdin",
+    project_urls={
+        "Bug Reports": "https://github.com/maroofi/csvtool/issues",
+        "Source": "https://github.com/maroofi/csvtool",
+    },
 )
