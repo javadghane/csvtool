@@ -2,17 +2,6 @@
 
 A command-line tool for working with CSV files with enhanced pipe support.
 
-## 🚀 New Feature: Default Readable Mode
-
-**Now you can simply pipe CSV data directly to csvtool for instant readable formatting!**
-
-```bash
-# New simplified usage - automatically formats CSV from pipe
-command | csvtool
-
-# Instead of the old way
-command | csvtool readable -
-```
 
 ## Installation
 
